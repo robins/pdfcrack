@@ -56,6 +56,12 @@ runCrackRev3_o(void);
 bool
 runCrackRev3_of(void);
 
+bool
+runCrackRev5_o(void);
+
+bool
+runCrackRev5(void);
+
 void
 runCrack(void);
 

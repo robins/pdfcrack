@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006 Henning Norén
+ * Copyright (C) 2006-2015 Henning Norén
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,7 +31,9 @@
 #define PRINTERVAL 20 /** Print Progress Interval (seconds) */
 #define CRASHFILE "savedstate.sav"
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 11
+#define VERSION_MINOR 16
+
+#define _FILE_OFFSET_BITS 64
 
 /** alarmInterrupt is used to print out the progress at specific intervals */
 static void
@@ -218,7 +220,7 @@ main(int argc, char** argv) {
     goto out3;
   }
 
-  if((file = fopen(inputfile, "r")) == 0) {
+  if((file = fopen(inputfile, "rb")) == 0) {
     fprintf(stderr,"Error: file %s not found\n", inputfile);
     ret = 2;
     goto out3;
@@ -256,7 +258,7 @@ main(int argc, char** argv) {
       ret = 4;
       goto out1;
     }
-    else if(e->revision < 2 || (strcmp(e->s_handler,"Standard") != 0)) {
+    else if(e->revision < 2 || (strcmp(e->s_handler,"Standard") != 0 || e->revision > 5)) {
       fprintf(stderr, "The specific version is not supported (%s - %d)\n", e->s_handler, e->revision);
       ret = 5;
       goto out1;

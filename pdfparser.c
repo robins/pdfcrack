@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2008 Henning Norén
+ * Copyright (C) 2006-2015 Henning Norén
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,9 +30,11 @@ struct p_str {
   uint8_t len;
 };
 
+static int o_len, u_len;
+
 typedef struct p_str p_str;
 
-__attribute__ ((pure)) static inline bool
+__attribute__ ((pure)) static bool
 isWhiteSpace(const int ch) {
   return (ch == 0x20 || (ch >= 0x09 && ch <= 0x0d) || ch == 0x00);
 }
@@ -114,7 +116,7 @@ parseName(FILE *file) {
     return NULL;
   }
   ch = getc(file);
-  for(i=0; i<BUFFSIZE && !isWhiteSpace(ch) && 
+  for(i=0; i<BUFFSIZE-1 && !isWhiteSpace(ch) && 
 	!isDelimiter(ch) && ch != EOF; ++i) {
     buff[i] = ch;
     ch = getc(file);
@@ -196,7 +198,7 @@ static p_str*
 parseHexString(const uint8_t *buf, const unsigned int len) {
   unsigned int i,j;
   p_str *ret;
- 
+
   ret = malloc(sizeof(p_str));
   ret->content = malloc(sizeof(uint8_t)*(len/2));
   ret->len = (len/2);
@@ -287,7 +289,7 @@ static p_str*
 parseRegularString(FILE *file) {
   unsigned int len, p;
   int ch;
-  p_str *ret;
+  p_str *ret = NULL;
   uint8_t buf[BUFFSIZE];
   bool skip = false;
 
@@ -310,7 +312,8 @@ parseRegularString(FILE *file) {
       ch = getc(file);
     }
     ungetc(ch, file);
-    ret = objStringToByte(buf, len);
+    if(len > 0)
+      ret = objStringToByte(buf, len);
   }
   else if(ch == '<') {
     len = 0;
@@ -323,12 +326,128 @@ parseRegularString(FILE *file) {
       ch = getc(file);
     }
     ungetc(ch,file);
-    ret = parseHexString(buf,len);
+    if((len > 1) && ((len%2) == 0))
+      ret = parseHexString(buf,len);
   }
-  else
-    ret = NULL;
 return ret;
 }
+
+static int
+findTrailerDict(FILE *file, EncData *e) {
+  int ch;
+  /**  int pos_i; */
+  bool encrypt = false;
+  bool id = false;
+  int e_pos = -1;
+  p_str *str = NULL;
+  int dict = 0;
+  
+  ch = getc(file);
+  while(ch != EOF) {
+    if(isEndOfLine(ch)) {
+      ch = parseWhiteSpace(file);
+      if(ch == '<' && getc(file) == '<') {
+	/** This should be the first dict we stumble upon*/
+
+	/**
+	   pos_i = ftell(file);
+	   printf("found Trailer at pos %x\n", pos_i);
+	*/
+	ch = getc(file);
+	while(ch != EOF) {
+	  if(ch == '<') {
+	    ch = getc(file);
+	    if(ch == '<') {
+	      dict++;
+	    }
+	  }
+	  if(ch == '>') {
+	    ch = getc(file);
+	    if(ch == '>') {
+	      if(dict == 0)
+		break;
+	    }
+	    dict--;
+	  }
+	  while(ch != '/' && ch != EOF) {
+	    ch = getc(file);
+	  }
+	  ch = getc(file);
+	  /**printf("found a name: %c\n", ch);*/
+	  if(e_pos < 0 && ch == 'E' && isWord(file, "ncrypt")) {
+	    e_pos = parseIntWithC(file,parseWhiteSpace(file));
+	    if(e_pos >= 0) {
+	      /**
+		 pos_i = ftell(file);
+		 printf("found Encrypt at pos %x, ", pos_i);
+		 printf("%d\n", e_pos);
+	      */
+	      encrypt = true;
+	    }
+	  }
+	  else if(ch == 'I' && getc(file) == 'D') {
+	    ch = parseWhiteSpace(file);
+	    while(ch != '[' && ch != EOF)
+	      ch = getc(file);
+
+	    if(str) {
+	      if(str->content)
+		free(str->content);
+	      free(str);
+	    }
+	      
+	    str = parseRegularString(file);
+	    /**
+	       pos_i = ftell(file);
+	       printf("found ID at pos %x\n", pos_i);
+	    */
+	    if(str)
+	      id = true;
+	    else
+	      id = false;
+
+	    ch = getc(file);
+	  }
+	  else
+	    ch = getc(file);
+	  if(encrypt && id) {
+	    /**printf("found all, returning: epos: %d\n",e_pos);*/
+	    e->fileID = str->content;
+	    e->fileIDLen = str->len;
+	    free(str);
+	    return e_pos;
+	  }
+	}
+      }  
+      else {
+	ch = getc(file);
+      }     
+    }
+    else
+      ch = getc(file);
+  }
+  /**  printf("finished searching\n");*/
+  
+  if(str) {
+    if(str->content)
+      	free(str->content);
+    free(str);
+  }
+  
+  if(!encrypt && id)
+    return ETRENF;
+  else if(!id && encrypt) {
+    /** We found a encrypt object, but not an ID. Let us try parsing the 
+	object as some security handlers seems to encrypt/skip the ID.
+	Logic changed to show these handles correctly instead of printing out
+	a error that the document is not encrypted.
+    **/
+    return e_pos;
+  }
+  else 
+    return ETRANF;
+}
+
 
 static int
 findTrailer(FILE *file, EncData *e) {
@@ -376,7 +495,7 @@ findTrailer(FILE *file, EncData *e) {
 		encrypt = true;
 	      }
 	    }
-	    else if(ch == 'I' && getc(file) == 'D') {
+	    else if(!id && ch == 'I' && getc(file) == 'D') {
 	      ch = parseWhiteSpace(file);
 	      while(ch != '[' && ch != EOF)
 		ch = getc(file);
@@ -386,13 +505,13 @@ findTrailer(FILE *file, EncData *e) {
 		  free(str->content);
 		free(str);
 	      }
-
+	      
 	      str = parseRegularString(file);
 	      /**
-	      pos_i = ftell(file);
-	      printf("found ID at pos %x\n", pos_i);
+		 pos_i = ftell(file);
+		 printf("found ID at pos %x\n", pos_i);
 	      */
-	      if(str)
+	      if(str) 
 		id = true;
 	      ch = getc(file);
 	    }
@@ -425,8 +544,14 @@ findTrailer(FILE *file, EncData *e) {
 
   if(!encrypt && id)
       return ETRENF;
-  else if(!id && encrypt)
-    return ETRINF;
+  else if(!id && encrypt) {
+    /** We found a encrypt object, but not an ID. Let us try parsing the 
+	object as some security handlers seems to encrypt/skip the ID.
+	Logic changed to show these handles correctly instead of printing out
+	a error that the document is not encrypted.
+    **/
+   return e_pos;
+  }
   else 
     return ETRANF;
 }
@@ -442,6 +567,8 @@ parseEncrypObject(FILE *file, EncData *e) {
   bool fr = false;
   bool fu = false;
   bool fv = false;
+  bool cf = false;
+  bool aesv2 = false;
   p_str *str = NULL;
 
   ch = getc(file);
@@ -460,9 +587,32 @@ parseEncrypObject(FILE *file, EncData *e) {
 	dict++;
       }
     }
+    if(dict > 1) {
+      ch = getc(file);
+      if(ch == '/') {
+	ch = getc(file);
+	switch(ch) {
+	case 'A':
+	  if(isWord(file, "ESV2")) {
+	    aesv2 = true;
+	  }
+	  break;
+
+	default:
+	  break;
+	}
+      }
+      continue;
+    }
+
     if(ch == '/') {
       ch = getc(file);
       switch(ch) {
+      case 'C':
+	if(isWord(file, "F")) {
+	  cf = true;
+	}
+	break;	
       case 'E':
 	if(isWord(file, "ncryptMetadata")) {
 	  ungetc(parseWhiteSpace(file), file);
@@ -485,18 +635,33 @@ parseEncrypObject(FILE *file, EncData *e) {
 	  if(!fl) { 
 	    /* BZZZT!!  This is sooo wrong but will work for most cases.
 	       only use the first length we stumble upon */
+	    if(tmp_l > 256 || tmp_l < 40 || ((tmp_l % 8) != 0)) {
+	      fprintf(stderr, "WARNING: Length = %d\n", tmp_l);
+	    }
 	    e->length = tmp_l;
 	  }
 	  fl = true;
 	}
 	break;
       case 'O':
+	/** Check if it is OE string and ignore it then */
+	ch = getc(file);
+	if(ch == 'E') {
+	  str = parseRegularString(file);
+	  if(str) {
+	    free(str->content);
+	    free(str);
+	  }
+	  break;
+	}
+	else
+	  ungetc(ch,file);
+	/** Parse O-String */
 	str = parseRegularString(file);
 	if(!str)
 	  break;
-	if(str->len != 32)
-	  fprintf(stderr, "WARNING: O-String != 32 Bytes: %d\n", str->len);
 	e->o_string = str->content;
+	o_len = str->len;
 	free(str);
 	fo = true;
 	break;
@@ -517,12 +682,24 @@ parseEncrypObject(FILE *file, EncData *e) {
 	}
 	break;
       case 'U':
+	/** Check if it is UE string and ignore it then */
+	ch = getc(file);
+	if(ch == 'E') {
+	  str = parseRegularString(file);
+	  if(str) {
+	    free(str->content);
+	    free(str);
+	  }
+	  break;
+	}
+	else
+	  ungetc(ch,file);
+	/** Parse U-string */
 	str = parseRegularString(file);
 	if(!str)
 	  break;
-	if(str->len != 32)
-	  fprintf(stderr, "WARNING: U-String != 32 Bytes: %d\n", str->len);
 	e->u_string = str->content;
+	u_len = str->len;
 	free(str);
 	fu = true;
 	break;
@@ -539,6 +716,7 @@ parseEncrypObject(FILE *file, EncData *e) {
     }
     ch = parseWhiteSpace(file);
   }
+    printf("\n");
 
   if(!fe)
     e->encryptMetaData = true;
@@ -547,7 +725,32 @@ parseEncrypObject(FILE *file, EncData *e) {
   if(!fv)
     e->version = 0;
 
-  if(strcmp(e->s_handler,"Standard") != 0)
+  if(fr) {
+    if (e->revision >= 5 && fu && fo) {
+      if(o_len < 48) {
+	fprintf(stderr, "WARNING: O-String < 48 Bytes: %d\n", o_len);
+	fo = false;
+      }
+      if(u_len < 48) {
+	fprintf(stderr, "WARNING: U-String < 48 Bytes: %d\n", u_len);
+	fu = false;
+      }
+    }
+    else {
+      if(fu && fo) {
+	if(o_len != 32)
+	  fprintf(stderr, "WARNING: O-String != 32 Bytes: %d\n", o_len);
+	if(u_len != 32)
+	  fprintf(stderr, "WARNING: U-String != 32 Bytes: %d\n", u_len);
+      }
+      if (cf && aesv2) {
+	e->revision = 3;
+	e->version = 2;
+      }
+    }
+  }
+
+  if(ff && strcmp(e->s_handler,"Standard") != 0)
     return true;
 
   return ff & fo && fp && fr && fu;
@@ -560,7 +763,6 @@ parseEncrypObject(FILE *file, EncData *e) {
 static bool
 findEncryptObject(FILE *file, const int e_pos, EncData *e) {
   int ch;
-  int pos_i;
 
   /** only find the encrypt object if e_pos > -1 */
   if(e_pos < 0)
@@ -575,7 +777,6 @@ findEncryptObject(FILE *file, const int e_pos, EncData *e) {
 	  ch = parseWhiteSpace(file);
 	  if(ch == 'o' && getc(file) == 'b' && getc(file) == 'j' &&
 	     parseWhiteSpace(file) == '<' && getc(file) == '<') {
-	    pos_i = ftell(file);
 	    return parseEncrypObject(file, e);
 	  }
 	}
@@ -592,12 +793,18 @@ getEncryptedInfo(FILE *file, EncData *e) {
   int e_pos = -1;
   bool ret;
 
-  if(fseek(file, 0L, SEEK_END-1024))
+  /* Start checking if the block is in the end of the file */
+  if(fseek(file, -1024, SEEK_END))
     e_pos = findTrailer(file, e);
   if(e_pos < 0) {
     rewind(file);
     e_pos = findTrailer(file, e);
   }
+  if(e_pos < 0) {
+    rewind(file);
+    e_pos = findTrailerDict(file, e);	
+  }
+
   if(e_pos < 0) {
     return e_pos;
   }

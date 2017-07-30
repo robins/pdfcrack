@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006 Henning Norén
+ * Copyright (C) 2006-2015 Henning Norén
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,13 +27,16 @@
 #include "common.h"
 #include "md5.h"
 #include "rc4.h"
+#include "sha256.h"
 #include "pdfcrack.h"
 
 #define COMMON_MD5_SIZE 88
+#define COMMON_SHA256_SIZE 40
+#define COMMON_SHA256_SLOW_SIZE 56
 
 #define BENCHINTERVAL 3 /** The interval to run the specific benchmarks */
 
-static bool finished = false;
+static volatile bool finished = false;
 
 /** interruptBench is used to stop the current benchmark */
 static void
@@ -57,6 +60,38 @@ print_and_clean(const char *str, unsigned int nrprocessed,
   finished = false;
 }
 
+static void
+sha256_bench(void) {
+  uint8_t *buf;
+  uint8_t hash[32];
+  unsigned int nrprocessed = 0;
+  clock_t startTime, endTime;
+
+  buf = calloc(COMMON_SHA256_SLOW_SIZE, sizeof(uint8_t));
+
+  alarm(BENCHINTERVAL);
+  startTime = clock();
+  while(!finished) {
+    sha256f(buf, COMMON_SHA256_SIZE, hash);
+    buf[0]++;
+    nrprocessed++;
+  }
+  endTime = clock();
+  print_and_clean("SHA256 (fast):\t", nrprocessed, &startTime, &endTime);
+
+  buf[0] = 0;
+  nrprocessed = 0;
+  alarm(BENCHINTERVAL);
+  startTime = clock();
+  while(!finished) {
+    sha256(buf, COMMON_SHA256_SLOW_SIZE, hash);
+    buf[0]++;
+    nrprocessed++;
+  }
+  endTime = clock();
+  print_and_clean("SHA256 (slow):\t", nrprocessed, &startTime, &endTime);
+  free(buf);
+}
 
 
 static void
@@ -86,13 +121,13 @@ md5_50_bench(void) {
   unsigned int nrprocessed = 0;
   clock_t startTime, endTime;
   int i;
-
+  
   buf = calloc(16, sizeof(uint8_t));
-
+  md5_50_init(16);
   alarm(BENCHINTERVAL);
   startTime = clock();
   while(!finished) {
-    md5_50(buf);
+    md5_50(buf, 16);
     buf[0]++;
     nrprocessed++;
   }
@@ -104,8 +139,7 @@ md5_50_bench(void) {
   alarm(BENCHINTERVAL);
   startTime = clock();
   while(!finished) {
-    for(i=0;i<50;i++)
-      md5(buf, 16, buf);
+    for(i=0; i<50; i++) { md5(buf, 16, buf); }
     buf[0]++;
     nrprocessed++;
   }
@@ -282,6 +316,8 @@ runBenchmark(void) {
   sigaction(SIGALRM, &act, 0);
 
   printf("Benchmark:\tAverage Speed (calls / second):\n");
+  sha256_bench();
+  printf("\n");
   md5_bench();
   md5_50_bench();
   printf("\n");

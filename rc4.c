@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006 Henning Norén
+ * Copyright (C) 2006-2014 Henning Norén
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,7 +23,7 @@
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
 
-/** Seems to faster to do a memcpy of this on my machine than to create 
+/** Seems to be faster to do a memcpy of this on my machine than to create 
     the array with a loop
 */
 static const uint8_t
@@ -51,12 +51,12 @@ initial_state[256] = {
   0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb,
   0xfc, 0xfd, 0xfe, 0xff};
 
-#define key_pass(n) {				\
+#define key_pass(n) {			\
     tmp = state[++i];				\
     j = (j + tmp + key[n]);			\
     state[i] = state[j];			\
     state[j] = tmp;				\
-  }
+    }
 
 /** Do rc4-decrypt with key on bs of length 32 and compare it to match */
 __attribute__ ((pure)) bool
@@ -114,8 +114,6 @@ rc4Decrypt40b(const uint8_t *key, const uint8_t *bs,
   register unsigned int i;
   register uint8_t j, tmp;
 
-  assert(len < 256);
-
   /** initialize the state */
   memcpy(state, initial_state, 256);
 
@@ -154,8 +152,6 @@ rc4Decrypt128b(const uint8_t *key, const uint8_t *bs,
   register int i;
   register uint8_t j, tmp;
 
-  assert(len < 256);
-
   /** initialize the state */
   memcpy(state, initial_state, 256);
 
@@ -193,6 +189,36 @@ rc4Decrypt128b(const uint8_t *key, const uint8_t *bs,
   }
 }
 
+static int keyLen;
+
+static void
+rc4DecryptArb(const uint8_t *key, const uint8_t *bs,
+	      const unsigned int len, uint8_t *out) {
+  uint8_t state[256];
+  register unsigned int i;
+  register uint8_t j, tmp;
+  
+  /** initialize the state */
+  memcpy(state, initial_state, 256);
+
+  /** do the shuffle */
+  j = 0;
+  i = -1;
+  do {
+    key_pass( (i % keyLen) );
+  } while(i < 255);
+
+  j = 0;
+  for(i=1;(unsigned int)i<=len;++i) {
+    tmp = state[i];
+    j += tmp;
+    state[i] = state[j];
+    state[j] = tmp;
+    tmp += state[i];
+    out[i-1] = bs[i-1]^state[tmp];
+  }
+}
+
 /** Just a wrapper for the function optimized for a specific length */
 inline void
 rc4Decrypt(const uint8_t *key, const uint8_t *bs,
@@ -201,13 +227,20 @@ rc4Decrypt(const uint8_t *key, const uint8_t *bs,
 }
 
 /** sets which function the wrapper should call */
-__attribute__ ((pure)) bool
+bool
 setrc4DecryptMethod(const unsigned int length) {
-  if(length == 128)
+  assert(length < 256);
+  assert((length % 8) == 0);
+
+  if(length == 128) {
     rc4d = &rc4Decrypt128b;
-  else if(length == 40)
+  }
+  else if(length == 40) {
     rc4d = &rc4Decrypt40b;
-  else
-    return false;
+  }
+  else {
+    keyLen = length / 8;
+    rc4d = &rc4DecryptArb;
+  }
   return true;
 }

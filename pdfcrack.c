@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2008 Henning Norén
+ * Copyright (C) 2006-2015 Henning Norén
  * Copyright (C) 1996-2005 Glyph & Cog, LLC.
  * 
  * This program is free software; you can redistribute it and/or
@@ -27,6 +27,7 @@
 #include "pdfcrack.h"
 #include "md5.h"
 #include "rc4.h"
+#include "sha256.h"
 #include "passwords.h"
 
 /** sets the number of bytes to decrypt for partial test in revision 3.
@@ -46,7 +47,7 @@ pad[32] = {
 
 /** buffers for stuff that we can precompute before the actual cracking */
 static uint8_t *encKeyWorkSpace;
-static uint8_t password_user[33];
+static uint8_t password_user[40];  /** need to cover 32 char + salt */
 static uint8_t *rev3TestKey;
 static unsigned int ekwlen;
 
@@ -96,6 +97,8 @@ static unsigned int
 initEncKeyWorkSpace(const int revision, const bool encMetaData,
 		    const int permissions, const uint8_t *ownerkey,
 		    const uint8_t *fileID, const unsigned int fileIDLen) {
+  unsigned int size;
+
   /** 
    *   Algorithm 3.2 Computing an encryption key (PDF Reference, v 1.7, p.125)
    *
@@ -108,7 +111,7 @@ initEncKeyWorkSpace(const int revision, const bool encMetaData,
    *   fileID          | <fileIDLEn>
    *  [extra padding]  | [4] (Special for step 6)
    **/
-  unsigned int size = (revision > 3 && !encMetaData) ? 72 : 68;
+  size = (revision >= 3 && !encMetaData) ? 72 : 68;
   encKeyWorkSpace = malloc(size + fileIDLen);
 
   /** Just to be sure we have no uninitalized stuff in the workspace */
@@ -127,7 +130,7 @@ initEncKeyWorkSpace(const int revision, const bool encMetaData,
   memcpy(encKeyWorkSpace + 68, fileID, fileIDLen);
 
   /** 6 */
-  if(revision > 3 && !encMetaData) {
+  if(revision >= 3 && !encMetaData) {
     encKeyWorkSpace[68+fileIDLen] = 0xff;
     encKeyWorkSpace[69+fileIDLen] = 0xff;
     encKeyWorkSpace[70+fileIDLen] = 0xff;
@@ -206,9 +209,8 @@ foundPassword(void) {
    * It is placed in password_user and we need to find where the pad
    * starts before we can print it out (without ugly artifacts) 
    **/
-
-  if(!workWithUser) {
-    fin_search=-1;
+    
+  if(!workWithUser && (encdata->revision < 5)) {
     pad_start=0;
 
     do {
@@ -250,23 +252,25 @@ isUserPasswordRev2(void) {
 static bool
 isUserPasswordRev3(void) {
   uint8_t test[16], enckey[16], tmpkey[16];
-  int i;
   unsigned int length, j;
+  int i;
 
   length = encdata->length/8;
-  md5(encKeyWorkSpace, ekwlen, enckey);      
-  md5_50(enckey);
-  memcpy(test, encdata->u_string, 16);
+  md5(encKeyWorkSpace, ekwlen, enckey);
 
+  md5_50(enckey, length);
+
+  memcpy(test, encdata->u_string, PARTIAL_TEST_SIZE);
+
+  /** Algorithm 3.5 reversed */
   RC4_DECRYPT_REV3(PARTIAL_TEST_SIZE);
-      
+
   /** if partial test succeeds we make a full check to be sure */
   if(unlikely(memcmp(test, rev3TestKey, PARTIAL_TEST_SIZE) == 0)) {
-    memcpy(test, encdata->u_string, 16);
-    RC4_DECRYPT_REV3(16);
-    if(memcmp(test, rev3TestKey, 16) == 0) {
+    memcpy(test, encdata->u_string, length);
+    RC4_DECRYPT_REV3(length);
+    if(memcmp(test, rev3TestKey, length) == 0)
       return true;
-    }
   }
   return false;
 }
@@ -321,8 +325,8 @@ runCrackRev3_o(void) {
 
     do {
       md5(currPW, 32, enckey);
-      
-      md5_50(enckey);
+
+      md5_50(enckey, length);
 
       memcpy(test, encdata->o_string, 32);
       RC4_DECRYPT_REV3(32);
@@ -373,13 +377,13 @@ runCrackRev3_of(void) {
   startTime = time(NULL);
   do {
     BEGIN_CRACK_LOOP();
-    
+
     do {
       md5(encKeyWorkSpace, 32, enckey);
-      
-      md5_50(enckey);
 
-      memcpy(test, encdata->o_string, 32);
+      md5_50(enckey, length);
+
+      memcpy(test, encdata->o_string, PARTIAL_TEST_SIZE);
       RC4_DECRYPT_REV3(PARTIAL_TEST_SIZE);
 
       /** if partial test succeeds we make a full check to be sure */
@@ -411,17 +415,17 @@ runCrackRev3(void) {
     do {
       md5(encKeyWorkSpace, ekwlen, enckey);
 
-      md5_50(enckey);
-      memcpy(test, encdata->u_string, 16);
- 
-     /** Algorithm 3.5 reversed */  
+      md5_50(enckey, length);
+      memcpy(test, encdata->u_string, PARTIAL_TEST_SIZE);
+
+      /** Algorithm 3.5 reversed */
       RC4_DECRYPT_REV3(PARTIAL_TEST_SIZE);
 
       /** if partial test succeeds we make a full check to be sure */
       if(unlikely(memcmp(test, rev3TestKey, PARTIAL_TEST_SIZE) == 0)) {
-	memcpy(test, encdata->u_string, 16);
-	RC4_DECRYPT_REV3(16);
-	if(memcmp(test, rev3TestKey, 16) == 0)
+	memcpy(test, encdata->u_string, length);
+	RC4_DECRYPT_REV3(length);
+	if(memcmp(test, rev3TestKey, length) == 0)
 	  return true;
       }
 
@@ -455,15 +459,85 @@ runCrackRev2(void) {
   return false;
 }
 
+bool
+runCrackRev5(void) {
+  uint8_t enckey[32];
+  unsigned int lpasslength;
+
+  lpasslength = 0;
+  startTime = time(NULL);
+  do {
+    currPWLen = setPassword(currPW);
+    if(unlikely(lpasslength != currPWLen)) {
+      /** Add the 8 byte user validation salt to pad */
+      if(likely(currPWLen < 32))
+	memcpy(currPW + currPWLen, encdata->u_string+32, 8);
+      lpasslength = currPWLen;
+    }
+
+    do {
+      sha256f(currPW, currPWLen+8, enckey);
+
+      if(memcmp(enckey, encdata->u_string, 32) == 0)
+	return true;
+
+      ++nrprocessed;
+    } while(permutate());
+  } while(nextPassword());
+  return false;
+}
+
+bool
+runCrackRev5_o(void) {
+  uint8_t enckey[32];
+  unsigned int lpasslength;
+
+  lpasslength = 0;
+  startTime = time(NULL);
+  do {
+    currPWLen = setPassword(currPW);
+    if(unlikely(lpasslength != currPWLen)) {
+      /** Add the 8 byte user validation and 48 byte u-key salt to pad */
+      if(likely(currPWLen < 32)) {
+	memcpy(currPW + currPWLen, encdata->o_string+32, 8);
+       	memcpy(currPW + currPWLen+8, encdata->u_string, 48);
+      }
+      lpasslength = currPWLen;
+    }
+
+    do {
+      sha256(currPW, currPWLen+56, enckey);
+
+      if(memcmp(enckey, encdata->o_string, 32) == 0)
+	return true;
+
+      ++nrprocessed;
+    } while(permutate());
+  } while(nextPassword());
+  return false;
+}
+
+
 /** Start cracking and does not stop until it has either been interrupted by
     a signal or the password either is found or wordlist or charset is exhausted
 */
 void
 runCrack(void) {
   bool found = false;
-  uint8_t cpw[32];
+  uint8_t cpw[88];
 
-  if(!workWithUser && !knownPassword) {
+  if(encdata->revision == 5) {
+    if(workWithUser) {
+      memcpy(currPW, encdata->u_string+32, 8);
+      found = runCrackRev5();
+    }
+    else {
+      memcpy(currPW, encdata->o_string+32, 8);
+      memcpy(currPW + 8, encdata->u_string, 48);
+      found = runCrackRev5_o();
+    }
+  } 
+  else if(!workWithUser && !knownPassword) {
     memcpy(cpw, pad, 32);
     currPW = cpw;
     if(encdata->revision == 2)
@@ -546,7 +620,22 @@ initPDFCrack(const EncData *e, const uint8_t *upw, const bool user,
   nrprocessed = 0;
   workWithUser = user;
   crackDone = false;
-  setrc4DecryptMethod((const unsigned int)e->length);
+
+  if(e->revision >= 5) {
+    permutation = (perm || permutation);
+    if(permutation)
+      permutate = do_permutate;
+    else
+      permutate = no_permutate;
+    initPasswords(pm, file, wl, cs, minPw, maxPw);
+    return true;
+  }
+
+  md5_50_init(encdata->length/8);
+
+  if(!setrc4DecryptMethod((const unsigned int)e->length))
+    exit(234);
+
   if(upw) {
     upwlen = strlen((const char*)upw);
     if(upwlen > 32)
@@ -614,7 +703,8 @@ static const char string_UUPWP[] =
 bool
 loadState(FILE *file, EncData *e, char **wl, bool *user) {
   unsigned int i;
-  int tmp, tmp2, tmp3, len;
+  int tmp, tmp2, tmp3;
+  size_t len;
   char c;
 
   /** Load all the simple values bound to the document */
@@ -641,8 +731,8 @@ loadState(FILE *file, EncData *e, char **wl, bool *user) {
   if(fscanf(file,string_FILTER, &len) < 1)
     return false;
 
-  /** bork out if length is insanely high or negative */
-  if(len > 256 || len < 0)
+  /** bork out if length is insanely high */
+  if(len > 256)
     return false;
 
   if(len > 0)
@@ -659,16 +749,21 @@ loadState(FILE *file, EncData *e, char **wl, bool *user) {
   /** Load the U- and O-strings */
   if(fscanf(file, "\nO:") == EOF)
     return false;
-  e->o_string = malloc(sizeof(uint8_t)*32);
-  e->u_string = malloc(sizeof(uint8_t)*32);
-  for(i=0;i<32;i++) {
+  if(e->revision == 5)
+    len = 48;
+  else
+    len = 32;
+  e->o_string = malloc(sizeof(uint8_t)*len);
+  e->u_string = malloc(sizeof(uint8_t)*len);
+
+  for(i=0;i<len;i++) {
     if(fscanf(file, " %d", &tmp) < 1)
       return false;
     e->o_string[i] = tmp;
   }
   if(fscanf(file, "\nU:") == EOF)
     return false;
-  for(i=0;i<32;i++) {
+  for(i=0;i<len;i++) {
     if(fscanf(file, " %d", &tmp) < 1)
       return false;
     e->u_string[i] = tmp;
@@ -705,6 +800,7 @@ loadState(FILE *file, EncData *e, char **wl, bool *user) {
 void
 saveState(FILE *file) {
   unsigned int i;
+  size_t len;
 
   fprintf(file, string_PRVPL,
 	  encdata->version_major, encdata->version_minor, encdata->revision,
@@ -715,10 +811,15 @@ saveState(FILE *file) {
   fprintf(file, string_FILTER, strlen(encdata->s_handler));
   fprintf(file, "%s", encdata->s_handler);
   fprintf(file, "\nO:");
-  for(i=0;i<32;i++)
+  if(encdata->revision == 5)
+    len = 48;
+  else
+    len = 32;
+
+  for(i=0;i<len;i++)
     fprintf(file, " %d", encdata->o_string[i]);
   fprintf(file,"\nU:");
-  for(i=0;i<32;i++)
+  for(i=0;i<len;i++)
     fprintf(file, " %d", encdata->u_string[i]);
   fprintf(file, string_UUPWP, (int)workWithUser,
 	  (int)knownPassword, (int)permutation);

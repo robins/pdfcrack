@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006-2008 Henning Norén
+ * Copyright (C) 2006-2015 Henning Norén
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -46,7 +46,6 @@ wlSetPassword(uint8_t *outbuf) {
   int ch;
   unsigned int passlength;
 
-  ch = 0;
   passlength = 0;
 
   ch = getc(wordList);
@@ -55,7 +54,7 @@ wlSetPassword(uint8_t *outbuf) {
     ch = getc(wordList);
   }
 
-  /** clean up garbage of passwords longed than 32 chars */
+  /** clean up garbage of passwords longer than 32 chars */
   if(unlikely(passlength == 32))
     while(ch != '\n' && ch != '\r' && ch != EOF)
       ch = getc(wordList);
@@ -188,8 +187,8 @@ static const char string_MPCLC[] = "MaxPWL: %d\nCharset(%d): ";
 
 bool
 pw_loadState(FILE *file, char **wl) {
-  int pm;
-  unsigned int i, len;
+  int pm, len;
+  unsigned int i;
   char * __restrict string;
 
   if(fscanf(file, string_PM, &pm) < 1)

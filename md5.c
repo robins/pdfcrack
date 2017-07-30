@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006 Henning Norén
+ * Copyright (C) 2006-2015 Henning Norén
  * Copyright (C) 1996-2005 Glyph & Cog, LLC.
  * 
  * This program is free software; you can redistribute it and/or
@@ -47,6 +47,10 @@
 #define CC 0x98badcfe
 #define DD 0x10325476
 
+static void (*md5_50_variant)();
+static void md5_50f(uint8_t *msg, const unsigned int msgLen);
+static void md5_50s(uint8_t *msg, const unsigned int msgLen);
+
 void 
 md5(const uint8_t *msg, const unsigned int msgLen, uint8_t *digest) {
   uint32_t x[16];
@@ -65,19 +69,19 @@ md5(const uint8_t *msg, const unsigned int msgLen, uint8_t *digest) {
   b = BB;
   c = CC;
   d = DD;
-  
+
   /** loop through blocks */
   k = 0;
   for (i = 0; i < n64; ++i) {
 
     /** grab a 64-byte block */
     for (j = 0; j < 16 && k < msgLen - 3; ++j, k += 4)
-      x[j] = (((((msg[k+3] << 8) + msg[k+2]) << 8) + msg[k+1]) << 8) + msg[k];
+      x[j] = ((((((unsigned)msg[k+3] << 8) + (unsigned)msg[k+2]) << 8) + (unsigned)msg[k+1]) << 8) + msg[k];
     if (i == n64 - 1) {
       if (k == msgLen - 3)
-	x[j] = 0x80000000 + (((msg[k+2] << 8) + msg[k+1]) << 8) + msg[k];
+	x[j] = 0x80000000 + ((((unsigned)msg[k+2] << 8) + (unsigned)msg[k+1]) << 8) + msg[k];
       else if (k == msgLen - 2)
-	x[j] = 0x800000 + (msg[k+1] << 8) + msg[k];
+	x[j] = 0x800000 + ((unsigned)msg[k+1] << 8) + msg[k];
       else if (k == msgLen - 1)
 	x[j] = 0x8000 + msg[k];
       else
@@ -192,24 +196,25 @@ md5(const uint8_t *msg, const unsigned int msgLen, uint8_t *digest) {
   digest[15] = (uint8_t)((d >>= 8) & 0xff);
 }
 
+static void
+md5_50s(uint8_t *msg, const unsigned int msgLen) {
+  int i;
+  for(i=0; i<50; i++) { md5(msg, msgLen, msg); }
+}
+
 /** fast version of "for(i=0; i<50; i++) { md5(msg, 16, msg); }" */
-void 
-md5_50(uint8_t *msg) {
+static void 
+md5_50f(uint8_t *msg, const unsigned int msgLen __attribute__((unused))) {
   register uint32_t a, b, c, d;
   int i;
-  
-  a = (((((msg[ 3] << 8) + msg[ 2]) << 8) + msg[ 1]) << 8) + msg[ 0];
-  b = (((((msg[ 7] << 8) + msg[ 6]) << 8) + msg[ 5]) << 8) + msg[ 4];
-  c = (((((msg[11] << 8) + msg[10]) << 8) + msg[ 9]) << 8) + msg[ 8];
-  d = (((((msg[15] << 8) + msg[14]) << 8) + msg[13]) << 8) + msg[12];
 
-  for(i = 0; i < 50; ++i) {
-    uint32_t aa, bb, cc, dd;
- 
-    dd = d;
-    cc = c;
-    bb = b;
-    aa = a;
+  a = ((((((unsigned)msg[ 3] << 8) + (unsigned)msg[ 2]) << 8) + (unsigned)msg[ 1]) << 8) + msg[ 0];
+  b = ((((((unsigned)msg[ 7] << 8) + (unsigned)msg[ 6]) << 8) + (unsigned)msg[ 5]) << 8) + msg[ 4];
+  c = ((((((unsigned)msg[11] << 8) + (unsigned)msg[10]) << 8) + (unsigned)msg[ 9]) << 8) + msg[ 8];
+  d = ((((((unsigned)msg[15] << 8) + (unsigned)msg[14]) << 8) + (unsigned)msg[13]) << 8) + msg[12];
+
+  for(i = 0; i < 50; i++) {
+    const uint32_t aa=a, bb=b, cc=c, dd=d;
 
     /** round 1 */
     /**MD5_ROUND1(a,BB,CC,DD, aa, 7, 0xd76aa478);
@@ -314,4 +319,17 @@ md5_50(uint8_t *msg) {
   msg[13] = (uint8_t)((d >>= 8) & 0xff);
   msg[14] = (uint8_t)((d >>= 8) & 0xff);
   msg[15] = (uint8_t)((d >>= 8) & 0xff);
+}
+
+void
+md5_50_init(const unsigned int msgLen) {
+  if(msgLen == 16)
+    md5_50_variant = &md5_50f;
+  else
+    md5_50_variant = &md5_50s;
+}
+
+void
+md5_50(uint8_t *msg, const unsigned int msgLen) {
+  md5_50_variant(msg, msgLen);
 }

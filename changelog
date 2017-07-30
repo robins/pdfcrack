@@ -1,3 +1,40 @@
+2017-04-20  Henning Norén  <henning.noren@gmail.com> - 0.16
+* Remove incorrectly used pure-attribute (thanks to Carl Shapiro for report)
+* Fix a possible overflow by one in the parser
+* Fix pdfcrack starting despite being unable to extract encryption info
+* Fix indention in man-page. Thanks to Jakub Wilk for patch
+* Bump version to 0.16
+2015-09-25  Henning Norén  <henning.noren@gmail.com> - 0.15
+* Fix a few crashes found by "american fuzzy lop"
+* Make the benchmark a bit more robust with volatile
+* Fix a couple of undefined behaviours with left shift on int-type
+* Fix GNU Make-isms in Makefile, thanks to Leonardo Taccari
+* Fix various clang and cppchecker issues and warnings
+* Bump version to 0.15
+2014-08-31  Henning Norén  <henning.noren@gmail.com> - 0.14
+* Add man-page
+* s/CFLAGS=/CFLAGS +=/ in Makefile
+* s/gcc/($CC)/ in Makefile
+* Add support for wordlists and pdfs > 2GB (thanks to Gary Dewey)
+* Bump version to 0.14
+2014-02-10  Henning Norén  <henning.noren@gmail.com> - 0.13
+* Skip strip and add debug symbols in Makefile
+* Bail out if encountering rev 5+ (Not supported)
+* Fix parsing of certain rev 4+ documents
+* Add initial support for rev 5 (SHA256)
+* Fix rev 3 owner password issues when other than 128 bit keylengths
+* Update copyright dates in header of files
+* Fix a gcc warning
+* Fix filemode when opening a file on unix to make it more portable
+  Thanks to Shinobu Maehara for the notice
+* Fix a pdfparser logic bug, thanks to Shinobu Maehara for reporting
+* bump version to 0.13
+2014-02-01  Henning Norén  <henning.noren@gmail.com> - 0.12
+* Print warning for odd key lengths
+* Add support for handling Rev 3 with other than 128 bit keylengths
+* Try parsing Encrypt object even when ID object is not found
+* Fix a few gcc-warnings
+* bump version to 0.12
 2008-08-03  Henning Norén  <henning.noren@gmail.com> - 0.11
 * Print out the user password when finding the ownerpassword
 * Be less strict when parsing magic number

@@ -1,20 +1,19 @@
-CFLAGS= -Wall -Wshadow -Wwrite-strings -Wsign-compare -Wfloat-equal \
-	-Wmissing-noreturn -Wbad-function-cast \
-	-Wmissing-prototypes -Winline -Wredundant-decls -O3
+CFLAGS += -Wall -Wextra -D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -O3 -g
+
+OBJS = main.o sha256.o rc4.o md5.o pdfcrack.o pdfparser.o passwords.o common.o \
+	benchmark.o
+OBJS_PDFREADER = pdfparser.o pdfreader.o common.o
 
 all: pdfcrack
 
-pdfcrack: main.o rc4.o md5.o pdfcrack.o pdfparser.o passwords.o common.o \
-	benchmark.o
-	gcc $(CFLAGS) -o $@ $+
-	strip $@
+pdfcrack: $(OBJS)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ $(OBJS)
 
-pdfreader: pdfparser.o pdfreader.o common.o
-	gcc $(CFLAGS) -o $@ $+
-	strip $@
+pdfreader: $(OBJS_PDFREADER)
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ $(OBJS_PDFREADER)
 
 clean:
 	rm -f pdfcrack pdfreader testreader *.o
 
 %.o: %.c
-	gcc $(CFLAGS) -c -o $@ $+
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -c -o $@ $+

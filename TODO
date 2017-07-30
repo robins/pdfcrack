@@ -1,3 +1,6 @@
+By now the pdfcrack project is pretty much stalled and lacks support for newer 
+pdf-versions and security schemes
+
 Replace pdfparser with a more robust and complete parsing of a PDF
 
 Optimize the crack and crypto-routines for greater performance

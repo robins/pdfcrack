@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006 Henning Norén
+ * Copyright (C) 2006-2015 Henning Norén
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -41,7 +41,7 @@ printEncData(EncData *e) {
   unsigned int i;
   uint8_t ch;
 
-  printf("PDF version %d.%d\n", e->version_major, e->version_minor);
+  printf("PDF version %u.%u\n", e->version_major, e->version_minor);
   if(e->s_handler)
     printf("Security Handler: %s\n",e->s_handler);
   printf("V: %d\nR: %d\nP: %d\nLength: %d\nEncrypted Metadata: %s\n", 

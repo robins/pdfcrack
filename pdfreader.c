@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2006 Henning Norén
+ * Copyright (C) 2006-2014 Henning Norén
  * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,6 +23,8 @@
 #include <stdlib.h>
 //#include <sys/types.h>
 //#include <sys/stat.h>
+
+#define _FILE_OFFSET_BITS 64
 
 int
 main(int argc, char **argv) {
