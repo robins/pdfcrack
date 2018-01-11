@@ -231,6 +231,7 @@ bool
 setrc4DecryptMethod(const unsigned int length) {
   assert(length < 256);
   assert((length % 8) == 0);
+  assert(length != 0);
 
   if(length == 128) {
     rc4d = &rc4Decrypt128b;
