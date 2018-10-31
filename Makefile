@@ -13,10 +13,10 @@ pdfreader: $(OBJS_PDFREADER)
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ $(OBJS_PDFREADER)
 
 install:
-	cp pdfcrack pdfreader /usr/local/bin/
+	cp pdfcrack pdfreader /usr/bin/
 
 uninstall:
-	rm -f /usr/local/bin/pdfcrack /usr/local/bin/pdfreader
+	rm -f /usr/bin/pdfcrack /usr/bin/pdfreader
 
 clean:
 	rm -f pdfcrack pdfreader testreader *.o
